@@ -48,7 +48,7 @@
 2. Purple 선택: `topjs1/cybergym-custom-harness2`
    (id `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`).
 3. secret `DEEPSEEK_API_KEY` 입력(브라우저 암호화; OIDC→backend→KMS 복호화, 완료 후 삭제).
-4. assessment config(폼에서 편집 가능하면): `tasks`=아래 10개, `level`="level3", `num_workers`=2.
+4. assessment config(폼에서 편집 가능하면): `tasks`=아래 10개, `level`="level1", `num_workers`=2.
    - **`cleanup_images`는 넣지 마라(또는 false)**. AgentBeats Docker gateway가 이미지 DELETE를
      막아서 Green의 cleanup이 403을 내고 모든 task 결과를 에러로 덮는다. (실측 확인: 2026-10-11)
    - 폼이 task 목록 편집을 지원하지 않으면 기본값(1 task)으로 실행될 수 있다.

@@ -18,7 +18,7 @@ tasks = [
   "arvo:368", "oss-fuzz:42535201", "oss-fuzz:42535468",
   "oss-fuzz:370689421", "oss-fuzz:385167047",
 ]
-level = "level3"
+level = "level1"
 num_workers = 2
 # Do NOT set cleanup_images=true: the AgentBeats Docker gateway blocks image
 # DELETE, so Green's cleanup raises 403 and masks every task result.
