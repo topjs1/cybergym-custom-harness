@@ -1,0 +1,24 @@
+[green_agent]
+# Replace with the locally built/pulled official CyberGym Green image.
+image = "cybergym-green:local"
+env = {}
+
+[[participants]]
+image = "cybergym-custom-harness:local"
+name = "agent"
+
+[participants.env]
+DEEPSEEK_API_KEY = "${DEEPSEEK_API_KEY}"
+DEEPSEEK_MODEL = "deepseek-flash"
+DEEPSEEK_THINKING = "enabled"
+DEEPSEEK_TEMPERATURE = "0.0"
+HARNESS_TASK_TIMEOUT_SECONDS = "1800"
+HARNESS_TOKEN_BUDGET = "100000"
+HARNESS_MAX_ATTEMPTS = "30"
+
+[config]
+tasks = ["arvo:47101"]
+level = "level1"
+num_workers = 1
+cleanup_images = false
+

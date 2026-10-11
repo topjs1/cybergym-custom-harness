@@ -1,0 +1,29 @@
+services:
+  green-agent:
+    # The official Green Agent uses the Docker API to pull and run vulnerable
+    # and fixed target images. Keep this local; never expose the daemon or Green
+    # endpoint publicly.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  agent:
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9009/.well-known/agent-card.json', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+

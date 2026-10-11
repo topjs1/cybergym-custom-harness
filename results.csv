@@ -1,0 +1,2 @@
+harness,task_id,model,input_tokens,output_tokens,cached_tokens,total_tokens,api_calls,time_seconds,api_cost_usd,peak_memory_mb,attempts,status,task_id_source,input_cache_miss_tokens,usage_source,api_cost_actual_usd,api_cost_source,pricing_tier,pricing_snapshot,error
+

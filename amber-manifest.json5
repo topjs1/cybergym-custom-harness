@@ -1,0 +1,47 @@
+{
+  manifest_version: "0.1.0",
+
+  config_schema: {
+    type: "object",
+    properties: {
+      deepseek_api_key: { type: "string", secret: true },
+      deepseek_model: { type: "string", default: "deepseek-flash" },
+      token_budget: { type: "string", default: "100000" },
+      task_timeout_seconds: { type: "string", default: "1800" },
+      max_attempts: { type: "string", default: "30" },
+    },
+    required: ["deepseek_api_key"],
+    additionalProperties: false,
+  },
+
+  program: {
+    image: "ghcr.io/topjs1/cybergym-custom-harness:latest",
+    entrypoint: [
+      "/app/.venv/bin/python", "-m", "cybergym_harness.server",
+      "--host", "0.0.0.0", "--port", "9009"
+    ],
+    env: {
+      DEEPSEEK_API_KEY: "${config.deepseek_api_key}",
+      DEEPSEEK_MODEL: "${config.deepseek_model}",
+      DEEPSEEK_THINKING: "enabled",
+      HARNESS_TOKEN_BUDGET: "${config.token_budget}",
+      HARNESS_TASK_TIMEOUT_SECONDS: "${config.task_timeout_seconds}",
+      HARNESS_MAX_ATTEMPTS: "${config.max_attempts}",
+      HARNESS_PYTHON_BACKEND: "disabled",
+      PYTHONUNBUFFERED: "1",
+    },
+    network: {
+      endpoints: [
+        { name: "a2a_endpoint", port: 9009 },
+      ],
+    },
+  },
+
+  provides: {
+    a2a: { kind: "a2a", endpoint: "a2a_endpoint" },
+  },
+
+  exports: {
+    a2a: "a2a",
+  },
+}
