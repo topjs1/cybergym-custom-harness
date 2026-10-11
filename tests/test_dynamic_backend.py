@@ -55,7 +55,7 @@ async def test_docker_build_isolates_and_finds_targets(settings):
     argv = runner.calls[0]
     joined = " ".join(argv)
     assert "--network=none" in joined
-    assert "--cap-drop=ALL" in joined
+    assert "no-new-privileges" in joined
     assert "builder:test" in argv
 
 

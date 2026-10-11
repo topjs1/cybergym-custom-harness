@@ -19,13 +19,13 @@ TARGET_CONTAINER_FLAGS = [
     "/tmp:rw,nosuid,nodev,noexec,size=64m",
 ]
 
-# Builders run as root by design: OSS-Fuzz build.sh writes into the mounted
-# source and output trees and expects root. The builder is still sandboxed
-# (cap-drop, no-new-privileges, resource caps, optional no-network) and never
-# receives secrets or host paths beyond the per-task workspace.
+# Builders run as root with default capabilities: OSS-Fuzz build.sh installs
+# dependencies (apt/dpkg need CHOWN/DAC_OVERRIDE/etc.) and writes into the mounted
+# source/output trees. The builder is still sandboxed (no-new-privileges, resource
+# caps, optional no-network) and never receives secrets or host paths beyond the
+# per-task workspace. The *target* container keeps the strict --cap-drop=ALL.
 BUILDER_CONTAINER_FLAGS_BASE = [
     "--rm",
-    "--cap-drop=ALL",
     "--security-opt=no-new-privileges",
     "--pids-limit=512",
     "--memory=4g",

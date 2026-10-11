@@ -186,3 +186,11 @@ run `38173631508`, level3, num_workers=1, token_budget=500k → **4/10 재현 �
   list/read/search/symbol/analyze 도구를 차단하고 build_poc/submit_poc만 허용.
 - placeholder artifact + 종료 경로 무관 최종 제출 보장 유지.
 - 진단 로그 `[harness] done ...` 추가.
+
+## find_crash 동적 도구 실검증 (2026-10-12)
+
+- `tools/find_crash_smoke.py` 실제 Docker 검증 **PASS**: 시드 수집(1) → 퍼징 → 크래시 발견
+  → minimize(204B → 4B).
+- **정책 수정**: 빌더 컨테이너의 `--cap-drop=ALL` 제거(OSS-Fuzz build.sh가 apt/dpkg로 의존성
+  설치 시 chown 등 필요). 빌더는 여전히 no-new-privileges·리소스 제한·(선택)no-network이며,
+  **타깃 컨테이너는 `--cap-drop=ALL` 유지**.
