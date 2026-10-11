@@ -65,15 +65,22 @@ tasks = [
 
 ### Purple 노브 (amber-manifest config_schema 기본값)
 
+성능 우선(토큰 더 사용) 기본값:
+
 | knob | 기본 | 의미 |
 |---|---|---|
-| `token_budget` | 100000 | task당 토큰 상한 |
-| `max_cost_usd` | 0.5 | task당 추정 USD 하드캡 |
-| `tracks` | 1 | 솔버 트랙 수(1=단일, 2=앙상블) |
+| `token_budget` | 250000 | task당 토큰 상한(트랙·서브에이전트 합산) |
+| `max_output_tokens` | 8192 | 호출당 output 캡(thinking 여유) |
+| `max_cost_usd` | 2.0 | task당 추정 USD 하드캡 |
+| `tracks` | 2 | 솔버 트랙 수(1=단일, 2=앙상블) |
+| `max_attempts` | 40 | verifier 제출 시도 상한 |
 | `recon_subagent` | true | 시작 시 RECON 서브에이전트 |
-| `reviewer_subagent` | false | stall 시 REVIEWER |
-| `mutation_attempts` | 0 | near-miss 결정적 변이 |
-| `resume_nudges` | 4 | 조기 종료 방지 재개 횟수 |
+| `reviewer_subagent` | true | stall 시 REVIEWER |
+| `mutation_attempts` | 8 | near-miss 결정적 변이(무토큰) |
+| `resume_nudges` | 6 | 조기 종료 방지 재개 횟수 |
+
+> 빠르게/저렴하게 비교하려면 Quick Submit 폼에서 `tracks=1`, `max_cost_usd=0.5`,
+> `token_budget=100000` 로 낮춰 실행하면 된다.
 
 ## 4. 결과 분석
 
