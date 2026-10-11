@@ -71,7 +71,7 @@ tasks = [
 
 | knob | 기본 | 의미 |
 |---|---|---|
-| `token_budget` | 500000 | task당 토큰 상한(트랙·서브에이전트 합산) — 실질 상한 |
+| `token_budget` | 700000 | task당 토큰 상한(트랙·서브에이전트 합산) — 실질 상한 |
 | `max_output_tokens` | 8192 | 호출당 output 캡(thinking 여유) |
 | `max_cost_usd` | 5.0 | task당 추정 USD 안전 상한 |
 | `tracks` | 3 | 솔버 트랙 수(1=단일, 2~3=앙상블, 예산 공유) |

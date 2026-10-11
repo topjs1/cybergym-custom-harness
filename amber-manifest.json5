@@ -6,9 +6,9 @@
     properties: {
       deepseek_api_key: { type: "string", secret: true },
       deepseek_model: { type: "string", default: "deepseek-flash" },
-      // Performance-first defaults: generous budget, two ensemble tracks, mutation and
-      // a reviewer. The token budget is the effective cap; the USD cap is a safety net.
-      token_budget: { type: "string", default: "500000" },
+      // Performance-first defaults: generous budget shared across three ensemble tracks.
+      // The token budget is the effective cap; the USD cap is a loose safety net.
+      token_budget: { type: "string", default: "700000" },
       task_timeout_seconds: { type: "string", default: "1800" },
       max_attempts: { type: "string", default: "60" },
       max_output_tokens: { type: "string", default: "8192" },
