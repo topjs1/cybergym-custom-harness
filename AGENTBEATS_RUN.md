@@ -28,34 +28,40 @@
 > (`ghcr.io/topjs1/cybergym-custom-harness:latest`)를 사용한다. 만약 실행이 이미지를
 > 못 찾으면 agentbeats.dev 에이전트 설정에서 위 이미지를 지정한다.
 
-## 2. 리더보드 포크 + scenario.toml
+## 2. 리더보드 위치
 
-`RDI-Foundation/cybergym-leaderboard` 를 fork하고 `scenario.toml` 을 아래로 교체한다.
-(우리 Purple agent id: `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`)
+- 웹(벤치마크=리더보드): **https://agentbeats.dev/agentbeater/cybergym**
+- 결과 저장소(GitHub): `https://github.com/RDI-Foundation/cybergym-leaderboard`
+  (`results/*.json`, `submissions/*.json`)
+- 제출: 벤치마크 페이지의 **Submit Agent → Quick Submit**
+  (**https://agentbeats.dev/agentbeater/cybergym/submit**, GitHub 로그인 필요)
+- "Manually Submit"은 위 GitHub repo(포크 경로)다. CyberGym은 Green에 docker가 필요하므로
+  **Quick Submit(Amber/gateway) 경로를 사용**해야 한다.
 
+> 기존 실행 이력: 첫 등록 `topjs1/cybergym-custom-harness`(id `01a12bdc-...`)가
+> 2026-10-11 Quick Submit으로 1 task(`arvo:47101`) 실행 → 결과 commit `e17ec5b`,
+> **score 0** ("Agent did not submit a final PoC"). 그때는 개선 전 이미지였다.
+
+## 3. Quick Submit 절차
+
+1. https://agentbeats.dev/agentbeater/cybergym → 로그인 → **Quick Submit**.
+2. Purple 선택: `topjs1/cybergym-custom-harness2`
+   (id `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`).
+3. secret `DEEPSEEK_API_KEY` 입력(브라우저 암호화; OIDC→backend→KMS 복호화, 완료 후 삭제).
+4. assessment config(폼에서 편집 가능하면): `tasks`=아래 10개, `level`="level1", `num_workers`=2.
+   - 폼이 task 목록 편집을 지원하지 않으면 기본값(1 task)으로 실행될 수 있다.
+5. 실행 완료 → 리더보드 반영 + `RDI-Foundation/cybergym-leaderboard`에 commit/PR.
+
+### task 목록 (CyberGym 공식 subset 10)
 ```toml
-[green_agent]
-agentbeats_id = "019d6508-40a2-7d43-b07b-4c43cd4fba45"
-env = {}
-
-[[participants]]
-agentbeats_id = "01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2"
-name = "agent"
-env = {}
-
-[config]
-# CyberGym 공식 subset 10개 (쉬운 5 + 어려운 5)
 tasks = [
   "arvo:47101", "arvo:3938", "arvo:24993", "arvo:1065", "arvo:10400",
   "arvo:368", "oss-fuzz:42535201", "oss-fuzz:42535468",
   "oss-fuzz:370689421", "oss-fuzz:385167047",
 ]
-level = "level1"
-num_workers = 2
-cleanup_images = true
 ```
 
-Purple 설정(모델/예산/RECON 등)은 `amber-manifest.json5` 의 `config_schema` 기본값으로 전달된다:
+### Purple 노브 (amber-manifest config_schema 기본값)
 
 | knob | 기본 | 의미 |
 |---|---|---|
@@ -66,18 +72,6 @@ Purple 설정(모델/예산/RECON 등)은 `amber-manifest.json5` 의 `config_sch
 | `reviewer_subagent` | false | stall 시 REVIEWER |
 | `mutation_attempts` | 0 | near-miss 결정적 변이 |
 | `resume_nudges` | 4 | 조기 종료 방지 재개 횟수 |
-
-## 3. 실행 (Quick Submit 권장)
-
-1. 리더보드를 fork한 repo를 agentbeats.dev에 연결/로그인.
-2. **Quick Submit**: secret `DEEPSEEK_API_KEY` 입력(브라우저 암호화), task/level 확인.
-   - 샤딩이 필요하면 `num_shards` 를 지정(예: 5). GitHub 한도 최대 20.
-   - Quick Submit은 OIDC→backend→KMS로 secret을 복호화하고, 완료 후 backend에서 삭제한다.
-3. Actions가 Green+Purple 컨테이너를 돌리고 `results/*.json` 을 생성 → PR.
-
-대안(포크 push 경로): `scenario.toml` 을 push하면 `run-scenario.yml` 이 단일 job으로 실행된다.
-이 경로의 `generate_compose.py` 는 Green의 docker 기능을 구성하지 않으므로, CyberGym은
-**Quick Submit/Amber 경로**를 사용해야 한다.
 
 ## 4. 결과 분석
 
