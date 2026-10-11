@@ -158,6 +158,27 @@ class CodeTools:
                 break
         return "\n\n".join(chunks)[: self.output_limit]
 
+    async def execute_readonly_tool(self, name: str, args: dict[str, Any]) -> str:
+        if name == "list_files":
+            return self.list_files(str(args.get("subdir", ".")), int(args.get("limit", 300)))
+        if name == "read_file":
+            return self.read_file(
+                str(args.get("path", "")),
+                int(args.get("start_line", 1)),
+                int(args.get("end_line", 240)),
+            )
+        if name == "search_code":
+            return await self.search_code(
+                str(args.get("pattern", "")),
+                str(args.get("subdir", ".")),
+                int(args.get("limit", 80)),
+            )
+        if name == "symbol_context":
+            return await self.symbol_context(str(args.get("symbol", "")))
+        if name == "analyze_error":
+            return self.analyze_error(str(args.get("path", "error.txt")))
+        return f"tool error: unknown read-only tool {name!r}"
+
     def analyze_error(self, path: str = "error.txt") -> str:
         target = _inside(self.root, path)
         if not target.is_file():

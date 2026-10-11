@@ -27,6 +27,15 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
     return value
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, str(default)).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean, got {raw!r}")
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     api_key: str
@@ -52,6 +61,29 @@ class Settings:
     max_poc_bytes: int
     max_tool_output_chars: int
     llm_mode: str
+    dynamic_analysis: str = "off"
+    dynamic_url: str = "http://dynamic-sandbox:9110"
+    dynamic_timeout_seconds: int = 120
+    build_timeout_seconds: int = 900
+    fuzz_seconds: int = 60
+    fuzz_engine: str = "libfuzzer"
+    max_crashes: int = 8
+    builder_image: str = "gcr.io/oss-fuzz-base/base-builder"
+    runner_image: str = "gcr.io/oss-fuzz-base/base-runner"
+    build_allow_network: bool = False
+    build_command: str = "bash build.sh"
+    dynamic_host_root: Path | None = None
+    sidecar_token: str = ""
+    recon_subagent: bool = False
+    reviewer_subagent: bool = False
+    recon_max_turns: int = 6
+    subagent_output_tokens: int = 1024
+    reviewer_max_calls: int = 2
+    stall_threshold: int = 3
+    mutation_attempts: int = 0
+    max_resume_nudges: int = 4
+    tracks: int = 1
+    max_cost_usd: float = 0.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,6 +99,12 @@ class Settings:
         llm_mode = os.getenv("HARNESS_LLM_MODE", "deepseek").strip().lower()
         if llm_mode not in {"deepseek", "mock"}:
             raise ValueError("HARNESS_LLM_MODE must be deepseek or mock")
+        dynamic_analysis = os.getenv("HARNESS_DYNAMIC_ANALYSIS", "off").strip().lower()
+        if dynamic_analysis not in {"off", "sidecar", "inline"}:
+            raise ValueError("HARNESS_DYNAMIC_ANALYSIS must be off, sidecar, or inline")
+        fuzz_engine = os.getenv("HARNESS_FUZZ_ENGINE", "libfuzzer").strip().lower()
+        if fuzz_engine not in {"libfuzzer", "afl"}:
+            raise ValueError("HARNESS_FUZZ_ENGINE must be libfuzzer or afl")
         return cls(
             api_key=os.getenv("DEEPSEEK_API_KEY", "").strip(),
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/"),
@@ -91,6 +129,31 @@ class Settings:
             max_poc_bytes=_env_int("HARNESS_MAX_POC_BYTES", 16_777_216, 1),
             max_tool_output_chars=_env_int("HARNESS_MAX_TOOL_OUTPUT_CHARS", 12_000, 256),
             llm_mode=llm_mode,
+            dynamic_analysis=dynamic_analysis,
+            dynamic_url=os.getenv("HARNESS_DYNAMIC_URL", "http://dynamic-sandbox:9110").rstrip("/"),
+            dynamic_timeout_seconds=_env_int("HARNESS_DYNAMIC_TIMEOUT_SECONDS", 120, 1),
+            build_timeout_seconds=_env_int("HARNESS_BUILD_TIMEOUT_SECONDS", 900, 1),
+            fuzz_seconds=_env_int("HARNESS_FUZZ_SECONDS", 60, 1),
+            fuzz_engine=fuzz_engine,
+            max_crashes=_env_int("HARNESS_MAX_CRASHES", 8, 1),
+            builder_image=os.getenv("HARNESS_BUILDER_IMAGE", "gcr.io/oss-fuzz-base/base-builder").strip(),
+            runner_image=os.getenv("HARNESS_RUNNER_IMAGE", "gcr.io/oss-fuzz-base/base-runner").strip(),
+            build_allow_network=_env_bool("HARNESS_BUILD_ALLOW_NETWORK", False),
+            build_command=os.getenv("HARNESS_BUILD_COMMAND", "bash build.sh").strip(),
+            dynamic_host_root=(
+                Path(host_root) if (host_root := os.getenv("HARNESS_DYNAMIC_HOST_ROOT", "").strip()) else None
+            ),
+            sidecar_token=os.getenv("HARNESS_SIDECAR_TOKEN", "").strip(),
+            recon_subagent=_env_bool("HARNESS_RECON_SUBAGENT", False),
+            reviewer_subagent=_env_bool("HARNESS_REVIEWER_SUBAGENT", False),
+            recon_max_turns=_env_int("HARNESS_RECON_MAX_TURNS", 6, 1),
+            subagent_output_tokens=_env_int("HARNESS_SUBAGENT_OUTPUT_TOKENS", 1024, 1),
+            reviewer_max_calls=_env_int("HARNESS_REVIEWER_MAX_CALLS", 2, 0),
+            stall_threshold=_env_int("HARNESS_STALL_THRESHOLD", 3, 1),
+            mutation_attempts=_env_int("HARNESS_MUTATION_ATTEMPTS", 0, 0),
+            max_resume_nudges=_env_int("HARNESS_RESUME_NUDGES", 4, 0),
+            tracks=_env_int("HARNESS_TRACKS", 1, 1),
+            max_cost_usd=_env_float("HARNESS_MAX_COST_USD", 0.0, 0.0),
         )
 
     def validate_runtime(self) -> None:

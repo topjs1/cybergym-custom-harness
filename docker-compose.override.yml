@@ -6,6 +6,47 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
+  # Isolated dynamic-analysis sidecar. It is the ONLY Purple-side container that
+  # holds the Docker socket. It receives no API key and no host paths beyond the
+  # shared per-task workspace. The Purple harness talks to it over the private
+  # compose network only.
+  dynamic-sandbox:
+    build:
+      context: .
+      dockerfile: sidecar/Dockerfile
+    environment:
+      HARNESS_DYNAMIC_ANALYSIS: "inline"
+      HARNESS_WORK_ROOT: "/data/tasks"
+      HARNESS_BUILDER_IMAGE: "${HARNESS_BUILDER_IMAGE:-gcr.io/oss-fuzz-base/base-builder}"
+      HARNESS_RUNNER_IMAGE: "${HARNESS_RUNNER_IMAGE:-gcr.io/oss-fuzz-base/base-runner}"
+      HARNESS_FUZZ_ENGINE: "${HARNESS_FUZZ_ENGINE:-libfuzzer}"
+      HARNESS_BUILD_ALLOW_NETWORK: "${HARNESS_BUILD_ALLOW_NETWORK:-false}"
+      # Absolute directory on the HOST that backs the ./data bind mount. The
+      # Docker daemon resolves bind-mount sources on the host, so this mapping
+      # is required when the sidecar runs in a container. Export it before
+      # `docker compose up`, e.g. CYBERGYM_HOST_DATA="$PWD/data".
+      HARNESS_DYNAMIC_HOST_ROOT: "${CYBERGYM_HOST_DATA:-}"
+      HARNESS_SIDECAR_TOKEN: "${HARNESS_SIDECAR_TOKEN:-}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9110/healthz', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+
   agent:
     read_only: true
     cap_drop:
@@ -14,6 +55,12 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=64m
+    environment:
+      HARNESS_DYNAMIC_ANALYSIS: "${HARNESS_DYNAMIC_ANALYSIS:-sidecar}"
+      HARNESS_DYNAMIC_URL: "http://dynamic-sandbox:9110"
+      HARNESS_SIDECAR_TOKEN: "${HARNESS_SIDECAR_TOKEN:-}"
+    depends_on:
+      - dynamic-sandbox
     volumes:
       - ./data:/data
     healthcheck:
@@ -26,4 +73,3 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-

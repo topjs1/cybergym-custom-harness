@@ -18,7 +18,7 @@ CSV_FIELDS = [
     "api_cost_usd", "peak_memory_mb", "attempts", "status",
     "task_id_source", "input_cache_miss_tokens", "usage_source",
     "api_cost_actual_usd", "api_cost_source", "pricing_tier",
-    "pricing_snapshot", "error",
+    "pricing_snapshot", "error", "role_tokens_json", "phase_seconds_json",
 ]
 
 PRICING_SNAPSHOT = "DeepSeek official pricing retrieved 2026-10-12"
@@ -43,6 +43,8 @@ class UsageRecord:
     total_tokens: int
     source: str
     latency_seconds: float
+    role: str = "solver"
+    phase: str = "solve"
 
 
 @dataclass(slots=True)
@@ -64,8 +66,23 @@ class TaskMetrics:
     peak_memory_mb: float = 0.0
     usage_sources: set[str] = field(default_factory=set)
     events: list[dict[str, Any]] = field(default_factory=list)
+    role_usage: dict[str, dict[str, int]] = field(default_factory=dict)
+    phase_seconds: dict[str, float] = field(default_factory=dict)
+    _phase_start: dict[str, float] = field(default_factory=dict)
+    _phase_stack: list[str] = field(default_factory=list)
 
-    def add_usage(self, usage: UsageRecord) -> None:
+    def add_usage(
+        self,
+        usage: UsageRecord,
+        role: str | None = None,
+        phase: str | None = None,
+    ) -> None:
+        if role is not None:
+            usage.role = role
+        if phase is not None:
+            usage.phase = phase
+        elif usage.phase == "solve":
+            usage.phase = self.current_phase
         self.input_tokens += usage.input_tokens
         self.output_tokens += usage.output_tokens
         self.cached_tokens += usage.cached_tokens
@@ -73,10 +90,34 @@ class TaskMetrics:
         self.total_tokens += usage.total_tokens
         self.api_calls += 1
         self.usage_sources.add(usage.source)
+        bucket = self.role_usage.setdefault(
+            usage.role,
+            {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "total_tokens": 0, "api_calls": 0},
+        )
+        bucket["input_tokens"] += usage.input_tokens
+        bucket["output_tokens"] += usage.output_tokens
+        bucket["cached_tokens"] += usage.cached_tokens
+        bucket["total_tokens"] += usage.total_tokens
+        bucket["api_calls"] += 1
         self.event("llm_usage", **asdict(usage))
 
     def event(self, event: str, **payload: Any) -> None:
         self.events.append({"at": time.time(), "event": event, **payload})
+
+    @property
+    def current_phase(self) -> str:
+        return self._phase_stack[-1] if self._phase_stack else "solve"
+
+    def phase_begin(self, phase: str) -> None:
+        self._phase_stack.append(phase)
+        self._phase_start[phase] = time.monotonic()
+
+    def phase_end(self, phase: str) -> None:
+        started = self._phase_start.pop(phase, None)
+        if started is not None:
+            self.phase_seconds[phase] = self.phase_seconds.get(phase, 0.0) + (time.monotonic() - started)
+        if self._phase_stack and self._phase_stack[-1] == phase:
+            self._phase_stack.pop()
 
     @property
     def elapsed(self) -> float:
@@ -94,15 +135,20 @@ class TaskMetrics:
             return "mock"
         return "mixed"
 
-    def estimated_cost(self) -> tuple[str, str]:
+    def estimated_cost_value(self) -> float | None:
         rates = PRICES_USD_PER_MILLION.get(self.model, {}).get(self.pricing_tier)
         if rates is None:
-            return "", "unavailable"
-        value = (
+            return None
+        return (
             self.cached_tokens * rates["cache_hit"]
             + self.cache_miss_tokens * rates["cache_miss"]
             + self.output_tokens * rates["output"]
         ) / 1_000_000
+
+    def estimated_cost(self) -> tuple[str, str]:
+        value = self.estimated_cost_value()
+        if value is None:
+            return "", "unavailable"
         return f"{value:.8f}", "estimated_from_token_usage"
 
     def csv_row(self) -> dict[str, str | int | float]:
@@ -129,6 +175,10 @@ class TaskMetrics:
             "pricing_tier": self.pricing_tier,
             "pricing_snapshot": PRICING_SNAPSHOT if cost_source != "unavailable" else "",
             "error": self.error[:1000],
+            "role_tokens_json": json.dumps(self.role_usage, sort_keys=True),
+            "phase_seconds_json": json.dumps(
+                {key: round(value, 3) for key, value in sorted(self.phase_seconds.items())}
+            ),
         }
 
 

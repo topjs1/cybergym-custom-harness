@@ -26,9 +26,15 @@ cybergym-custom-harness/
 │   ├── controller.py      # main single-agent feedback loop
 │   ├── attachments.py     # safe A2A file and tar handling
 │   ├── code_tools.py      # list/read/search/symbol/error tools
+│   ├── static_triage.py   # deterministic file ranking / entry / crash hints
+│   ├── mutation.py        # deterministic near-miss byte mutator
+│   ├── feedback.py        # verifier feedback classification
+│   ├── subagents/         # read-only recon and reviewer subagents
+│   ├── dynamic/           # isolated build/run/fuzz/triage backends
 │   ├── llm.py             # DeepSeek and Mock adapters
 │   ├── sandbox.py         # byte DSL and optional Docker Python
-│   └── metrics.py         # CSV/JSONL/token/cost/time/memory
+│   └── metrics.py         # CSV/JSONL/token/cost/time/memory + role/phase tags
+├── sidecar/               # dynamic-sandbox service (only socket holder)
 ├── tests/
 ├── tools/
 ├── amber-manifest.json5
@@ -99,6 +105,28 @@ export HARNESS_MAX_ATTEMPTS=30
 
 실제 호출은 비용 승인을 받은 뒤에만 수행한다.
 
+### A1a DeepSeek 파일럿 (실제 타깃 없이)
+
+`tools/deepseek_pilot.py`는 실제 DeepSeek로 파이프라인 전체(thinking+tool calls, triage,
+build_poc, submit_poc, 피드백 루프, 예산, metrics, 최종 artifact)를 **stub verifier**로
+검증한다. target 이미지 다운로드나 실제 Green이 필요 없다.
+
+```bash
+cd cybergym-custom-harness
+read -s DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY
+UV_CACHE_DIR="$PWD/.uv-cache" uv run python tools/deepseek_pilot.py \
+  --tcp --stub nth=3 --model deepseek-flash --token-budget 100000 --max-attempts 30
+unset DEEPSEEK_API_KEY
+```
+
+- `--stub never|always|nth=N`: N번째 제출을 크래시로 간주.
+- `--task-dir DIR`: 실 repo-vul/description/error 사용(없으면 합성 챌린지).
+- `--stub-output FILE`: 실제 ASan 로그를 feedback으로 주입.
+- 기본 transport는 **TCP subprocess**다. `--inprocess`(ASGI)는 버퍼링 때문에 제출마다
+  `HARNESS_FEEDBACK_TIMEOUT_SECONDS`만큼 지연되므로 파일럿에는 TCP를 권장한다.
+- 산출: `data/pilot-<ts>/results.csv`·`events.jsonl` + 토큰/캐시/지연/추정비용 요약.
+- 키는 shell로만 주입하며 파일/로그에 남기지 않는다.
+
 ## Docker build와 실행
 
 ```bash
@@ -168,6 +196,49 @@ export HARNESS_PYTHON_BACKEND=docker
 ```
 
 Python sandbox는 network 없음, read-only root, non-root, capability 없음, resource cap이며 API key와 source tree를 받지 않는다. Docker daemon이나 image가 없으면 자동 fallback 실행을 하지 않고 오류를 반환한다.
+
+## 동적분석 (Dynamic analysis)
+
+기본값 `HARNESS_DYNAMIC_ANALYSIS=off`가 안전한 운영값이다. 켜면 모델이
+`build_target` → `run_target`/`fuzz_target` → `triage_crash`로 취약 타겟을 직접
+빌드·퍼징해 크래시 입력을 찾고, 그 바이트를 `submit_poc`로 공식 검증한다.
+
+```bash
+export HARNESS_DYNAMIC_ANALYSIS=sidecar
+export HARNESS_DYNAMIC_URL=http://dynamic-sandbox:9110
+export CYBERGYM_HOST_DATA="$PWD/data"   # compose가 sidecar에 전달
+docker compose -f docker-compose.yml -f docker-compose.override.yml up --abort-on-container-exit
+```
+
+격리 원칙:
+
+- Purple 컨테이너는 Docker socket이 없다. socket은 평가자(Green)와
+  `dynamic-sandbox` sidecar에만 있다.
+- sidecar는 API key와 외부 egress가 없고, private compose network에서만 통신한다.
+- builder/타겟 컨테이너는 일회성이며 `--network=none`(빌드 예외는 opt-in),
+  `--read-only`, `--cap-drop=ALL`, `no-new-privileges`, 비-root, 자원 제한을 강제한다.
+- dynamic 도구에 넘기기 전에 `.git`, `patch.diff`, `tmp/poc` 같은 정답 누출
+  아티팩트를 제거한다.
+- 로컬 크래시는 신호일 뿐이다. 최종 성공은 항상 Green의 `submit_poc` 결과로 확정한다.
+- 별도 builder/runner image 다운로드와 x86_64 runner가 필요하다. 설계는
+  [DYNAMIC_ANALYSIS_DESIGN.md](DYNAMIC_ANALYSIS_DESIGN.md) 참조.
+
+## 정적분석 · 서브에이전트 · 변이
+
+- **정적 triage**는 항상 실행되며 토큰을 쓰지 않는다. 파일 랭킹, fuzz entry point,
+  ASan 크래시 함수·위치, 입력 종류, magic bytes를 초기 컨텍스트에 넣는다.
+- **RECON 서브에이전트**(`HARNESS_RECON_SUBAGENT=true`)는 시작 시 읽기 전용 도구로
+  가설 JSON을 만들어 주 솔버에 넘긴다.
+- **REVIEWER 서브에이전트**(`HARNESS_REVIEWER_SUBAGENT=true`)는 `HARNESS_STALL_THRESHOLD`
+  회 연속 실패 시 대안 가설을 제안한다(`HARNESS_REVIEWER_MAX_CALLS`로 상한).
+- **near-miss mutator**(`HARNESS_MUTATION_ATTEMPTS>0`)는 실패한 후보의 trigger 구간을
+  무토큰으로 변이해 자동 재시도한다. 시도 예산을 소비하므로 값은 작게 시작한다.
+- **K=2 앙상블**(`HARNESS_TRACKS=2`)은 정적(source-first) 트랙과 동적/포맷 트랙을 동시에
+  돌려 상호보완적으로 탐색한다(공유 submit 채널·예산·중복 해시 풀, 첫 성공 시 종료).
+- **긴/구조적 PoC**는 `build_poc`의 `pad`/`repeat_seq`/`u8..u64`/`crc32`/`patch` 연산으로
+  조립한다(큰 리터럴 금지).
+- **조기 종료 방지**(`HARNESS_RESUME_NUDGES`)로 제출 전 포기 시 재개를 유도한다.
+- 서브에이전트 토큰은 metrics에 `role` 태그로 따로 합산되어 추후 경제성 비교에 쓰인다.
 
 ## 결과
 
