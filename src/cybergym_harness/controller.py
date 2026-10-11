@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,7 @@ class HarnessSession:
         self._submitted_hashes: set[str] = set()
         self._finalized = False
         self._artifact_added = False
+        self._placeholder_sent = False
         self._triage = None
         self.dynamic_backend = None
         self.dynamic_tools: DynamicTools | None = None
@@ -190,6 +192,10 @@ class HarnessSession:
         self._triage = triage
         self._triage_summary = triage.render()
         self.metrics.event("static_triage", summary=self._triage_summary)
+        # Send a placeholder artifact now, while the task is in a stable "working"
+        # state, so a final PoC exists on EVERY termination path. A real candidate
+        # added later simply overwrites it (Green keeps the last artifact).
+        await self._send_placeholder(updater)
         system_prompt = SYSTEM_PROMPT + (DYNAMIC_PROMPT_ADDENDUM if dynamic_enabled else "")
         initial_parts = [
             f"CyberGym difficulty: {self.challenge.difficulty}",
@@ -239,13 +245,14 @@ class HarnessSession:
         candidate = self.last_poc
         source = "last_poc"
         if candidate is None:
-            candidate = self._fallback_candidate()
             source = "generated"
+            try:
+                candidate = self._fallback_candidate()
+            except Exception:  # noqa: BLE001
+                candidate = None
         if candidate is None:
-            candidate = self._minimal_candidate()
             source = "synthetic"
-        if candidate is None:
-            return
+            candidate = self._minimal_candidate() or b"A"
         self.last_poc = candidate
         self.metrics.event("guaranteed_artifact", source=source, size=len(candidate))
         await self._add_final_artifact(updater, candidate)
@@ -266,7 +273,8 @@ class HarnessSession:
         return b"A"
 
     def _fallback_candidate(self) -> bytes | None:
-        assert self.challenge is not None
+        if self.challenge is None:
+            return None
         roots = [
             self.challenge.workspace / "generated",
             self.challenge.workspace / "build" / "crashes",
@@ -649,7 +657,18 @@ class HarnessSession:
             track.messages.append({"role": "user", "content": f"Reviewer subagent alternative hypotheses:\n{ideas}"})
             track.consecutive_failures = 0
 
-    async def _add_final_artifact(self, updater: TaskUpdater, poc: bytes) -> None:
+    async def _send_placeholder(self, updater: TaskUpdater) -> None:
+        if self._placeholder_sent:
+            return
+        self._placeholder_sent = True
+        placeholder = self._minimal_candidate() or b"A"
+        try:
+            await self._add_final_artifact(updater, placeholder, final=False)
+            self.metrics.event("placeholder_artifact", size=len(placeholder))
+        except Exception:  # noqa: BLE001
+            self.metrics.event("placeholder_artifact_failed")
+
+    async def _add_final_artifact(self, updater: TaskUpdater, poc: bytes, *, final: bool = True) -> None:
         await updater.add_artifact(
             parts=[Part(root=FilePart(file=FileWithBytes(
                 bytes=base64.b64encode(poc).decode("ascii"),
@@ -658,12 +677,19 @@ class HarnessSession:
             )))],
             name="poc",
         )
-        self._artifact_added = True
+        if final:
+            self._artifact_added = True
 
     async def finalize(self) -> None:
         if self._finalized:
             return
         self._finalized = True
+        print(
+            f"[harness] done status={self.metrics.status} artifact_added={self._artifact_added} "
+            f"placeholder={self._placeholder_sent} attempts={self.metrics.attempts} "
+            f"tokens={self.metrics.total_tokens} error={self.metrics.error[:160]!r}",
+            file=sys.stderr,
+        )
         if self.dynamic_backend is not None:
             try:
                 await self.dynamic_backend.close()

@@ -50,7 +50,9 @@ async def test_mock_llm_feedback_loop_and_metrics(settings):
     await session.run(challenge_message(), updater)
     assert session.success
     assert updater.requests == 2
-    assert len(updater.artifacts) == 1
+    # one placeholder artifact at start + one final artifact
+    assert len(updater.artifacts) == 2
+    assert base64.b64decode(updater.artifacts[-1][0][0].root.file.bytes) == b"mock-crash-poc"
     assert session.metrics.attempts == 2
     assert session.metrics.input_tokens == 180
     assert session.metrics.output_tokens == 35
@@ -169,7 +171,7 @@ async def test_ensemble_tracks_share_single_submission(monkeypatch, settings):
     await session.run(challenge_message(), updater)
     assert session.success
     assert session.metrics.attempts == 1
-    assert len(updater.artifacts) == 1
+    assert len(updater.artifacts) == 2  # placeholder + final
     roles = {event.get("role") for event in session.metrics.events if event["event"] == "poc_attempt"}
     assert roles
 
@@ -299,7 +301,8 @@ async def test_fallback_artifact_when_model_never_submits(monkeypatch, settings)
     updater = FakeUpdater(session)
     await session.run(challenge_message(), updater)
     assert not session.success
-    assert len(updater.artifacts) == 1
+    assert len(updater.artifacts) == 2  # placeholder + fallback
+    assert base64.b64decode(updater.artifacts[-1][0][0].root.file.bytes) == b"ABCD"
     assert session.last_poc == b"ABCD"
     assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
 
@@ -320,7 +323,7 @@ async def test_guaranteed_artifact_synthetic_when_nothing_built(monkeypatch, set
     session = HarnessSession("ctx-synth", configured, writer)
     updater = FakeUpdater(session)
     await session.run(challenge_message(), updater)
-    assert len(updater.artifacts) == 1
+    assert len(updater.artifacts) == 2  # placeholder + synthetic
     assert session.last_poc is not None and len(session.last_poc) >= 1
     assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
 
@@ -341,7 +344,7 @@ async def test_guaranteed_artifact_on_exception(monkeypatch, settings):
     updater = FakeUpdater(session)
     with pytest.raises(RuntimeError):
         await session.run(challenge_message(), updater)
-    assert len(updater.artifacts) == 1
+    assert len(updater.artifacts) == 2  # placeholder + guaranteed final
     assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
 
 
