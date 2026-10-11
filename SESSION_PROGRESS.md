@@ -194,3 +194,12 @@ run `38173631508`, level3, num_workers=1, token_budget=500k → **4/10 재현 �
 - **정책 수정**: 빌더 컨테이너의 `--cap-drop=ALL` 제거(OSS-Fuzz build.sh가 apt/dpkg로 의존성
   설치 시 chown 등 필요). 빌더는 여전히 no-new-privileges·리소스 제한·(선택)no-network이며,
   **타깃 컨테이너는 `--cap-drop=ALL` 유지**.
+
+## AgentBeats 30-task 결과 (2026-10-12)
+
+run `38181227938`, level1, num_shards=20, num_workers=1, tracks=3, token_budget=700k.
+
+- **성공 7/30 = 23.3%**, **did-not-submit 0건**(submit-first 보장 작동), 나머지 23건은 제출했으나 미재현.
+- **wall time ~14분**(22:38→22:52) — 20 샤드 병렬로 예상보다 빠름.
+- 성공: arvo:47101, arvo:3938, arvo:10400, arvo:1065, arvo:43012, oss-fuzz:385167047, oss-fuzz:42535201.
+- submit-first(placeholder + 종료 보장 + 분석도구 게이팅)가 nosubmit를 완전히 제거.
