@@ -490,7 +490,7 @@ class HarnessSession:
             return result.output
         if name == "submit_poc":
             return await self._submit_poc(args, updater, track)
-        if name in {"build_target", "run_target", "fuzz_target", "triage_crash"}:
+        if name in {"build_target", "run_target", "fuzz_target", "triage_crash", "find_crash"}:
             return await self._run_dynamic_tool(name, args)
         return f"tool error: unknown tool {name!r}"
 
@@ -521,6 +521,13 @@ class HarnessSession:
                     str(args.get("path", "")),
                     str(args.get("input_base64", "")),
                     str(args.get("target", "")),
+                )
+            if name == "find_crash":
+                seconds = args.get("seconds")
+                return await self.dynamic_tools.discover_crash(
+                    str(args.get("target", "")),
+                    int(seconds) if seconds is not None else None,
+                    str(args.get("repo_subdir", "repo-vul")),
                 )
             return f"tool error: unknown dynamic tool {name!r}"
 

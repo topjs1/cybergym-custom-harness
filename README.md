@@ -202,6 +202,8 @@ Python sandbox는 network 없음, read-only root, non-root, capability 없음, r
 기본값 `HARNESS_DYNAMIC_ANALYSIS=off`가 안전한 운영값이다. 켜면 모델이
 `build_target` → `run_target`/`fuzz_target` → `triage_crash`로 취약 타겟을 직접
 빌드·퍼징해 크래시 입력을 찾고, 그 바이트를 `submit_poc`로 공식 검증한다.
+`find_crash`는 **시드 수집(corpus/seeds/testdata, *_seed_corpus.zip) → 퍼징 → 최초 크래시
+minimize** 를 한 번에 수행하는 편의 도구다(결과는 `generated/`에 저장).
 
 ```bash
 export HARNESS_DYNAMIC_ANALYSIS=sidecar

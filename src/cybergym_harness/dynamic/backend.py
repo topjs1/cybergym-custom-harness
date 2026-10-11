@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,17 @@ class DynamicBackend:
     async def triage(self, workspace_id: str, *, target: str, data: bytes) -> dict[str, Any]:
         raise NotImplementedError
 
+    async def discover_crash(
+        self,
+        workspace_id: str,
+        *,
+        target: str,
+        seconds: int,
+        repo_subdir: str = "repo-vul",
+        minimize_seconds: int = 60,
+    ) -> dict[str, Any]:
+        raise NotImplementedError
+
     async def close(self) -> None:
         return None
 
@@ -60,6 +72,17 @@ class DisabledDynamicBackend(DynamicBackend):
         return {"ok": False, "error": self._MESSAGE}
 
     async def triage(self, workspace_id: str, *, target: str, data: bytes) -> dict[str, Any]:
+        return {"ok": False, "error": self._MESSAGE}
+
+    async def discover_crash(
+        self,
+        workspace_id: str,
+        *,
+        target: str,
+        seconds: int,
+        repo_subdir: str = "repo-vul",
+        minimize_seconds: int = 60,
+    ) -> dict[str, Any]:
         return {"ok": False, "error": self._MESSAGE}
 
 
@@ -208,6 +231,111 @@ class DockerDynamicBackend(DynamicBackend):
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+    def _collect_seeds(self, workspace_id: str, repo_subdir: str, max_seeds: int = 256) -> int:
+        """Find/collect existing seed corpus files (dirs and zips) into build/corpus."""
+        ws = self._ws(workspace_id)
+        repo = ensure_within(ws, ws / repo_subdir)
+        corpus = ws / "build" / "corpus"
+        corpus.mkdir(parents=True, exist_ok=True)
+        os.chmod(corpus, 0o777)
+        count = 0
+        seed_dir_names = {"corpus", "seeds", "seed_corpus", "testdata", "testcases", "inputs"}
+        for current, dirs, files in os.walk(repo):
+            if Path(current).name in seed_dir_names:
+                for name in files:
+                    path = Path(current) / name
+                    try:
+                        if path.stat().st_size <= 1 << 20:
+                            (corpus / f"seed-{count}").write_bytes(path.read_bytes())
+                            count += 1
+                    except OSError:
+                        continue
+                    if count >= max_seeds:
+                        return count
+        for archive in sorted(repo.rglob("*.zip")):
+            if count >= max_seeds:
+                break
+            try:
+                with zipfile.ZipFile(archive) as bundle:
+                    for name in bundle.namelist():
+                        data = bundle.read(name)
+                        if len(data) <= 1 << 20:
+                            (corpus / f"zip-{count}").write_bytes(data)
+                            count += 1
+                        if count >= max_seeds:
+                            break
+            except Exception:  # noqa: BLE001 - best-effort seed collection
+                continue
+        return count
+
+    async def minimize_crash(
+        self, workspace_id: str, *, target: str, crash: bytes, seconds: int = 60
+    ) -> dict[str, Any]:
+        try:
+            ws = self._ws(workspace_id)
+            out = ensure_within(ws, ws / "build" / "out")
+            target_path = resolve_member(out, target)
+            if not target_path.is_file():
+                return {"ok": False, "error": f"target not found: {target}"}
+            crashes = ws / "build" / "crashes"
+            crashes.mkdir(parents=True, exist_ok=True)
+            os.chmod(crashes, 0o777)
+            (crashes / "to_minimize").write_bytes(crash)
+            minimized = crashes / "minimized"
+            minimized.unlink(missing_ok=True)
+            argv = [
+                self._docker(), "run", *TARGET_CONTAINER_FLAGS,
+                "--mount", f"type=bind,src={self._host_path(out)},dst=/out,readonly",
+                "--mount", f"type=bind,src={self._host_path(crashes)},dst=/crashes",
+                self.settings.runner_image,
+                f"/out/{target_path.name}",
+                "-minimize_crash=1",
+                f"-max_total_time={seconds}",
+                "-exact_artifact_path=/crashes/minimized",
+                "/crashes/to_minimize",
+            ]
+            result = await self.runner.run(argv, timeout=seconds + self.settings.dynamic_timeout_seconds)
+            info = None
+            if minimized.is_file():
+                blob = minimized.read_bytes()
+                info = {"name": "minimized", "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest()}
+            return {"ok": True, "minimized": info or {"name": "to_minimize", "size": len(crash)}, "output": _tail(result.combined)}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    async def discover_crash(
+        self,
+        workspace_id: str,
+        *,
+        target: str,
+        seconds: int,
+        repo_subdir: str = "repo-vul",
+        minimize_seconds: int = 60,
+    ) -> dict[str, Any]:
+        """One-shot: collect seed files -> fuzz -> minimize the first crash."""
+        seeds = self._collect_seeds(workspace_id, repo_subdir)
+        fuzz_result = await self.fuzz(workspace_id, target=target, seed=b"", seconds=seconds)
+        if not fuzz_result.get("ok"):
+            return fuzz_result
+        crashes = fuzz_result.get("crashes", [])
+        minimized = None
+        if crashes:
+            crashes_dir = self._ws(workspace_id) / "build" / "crashes"
+            first = crashes_dir / str(crashes[0].get("name", ""))
+            if first.is_file():
+                min_result = await self.minimize_crash(
+                    workspace_id, target=target, crash=first.read_bytes(), seconds=minimize_seconds
+                )
+                if min_result.get("ok"):
+                    minimized = min_result.get("minimized")
+        return {
+            "ok": True,
+            "seeds": seeds,
+            "crashes": crashes[: self.settings.max_crashes],
+            "minimized": minimized,
+            "output": _tail(str(fuzz_result.get("output", ""))),
+        }
+
     async def triage(self, workspace_id: str, *, target: str, data: bytes) -> dict[str, Any]:
         run_result = await self.run(workspace_id, target=target, data=data)
         if not run_result.get("ok"):
@@ -276,6 +404,23 @@ class SidecarDynamicBackend(DynamicBackend):
             "workspace_id": workspace_id,
             "target": target,
             "data_b64": base64.b64encode(data).decode("ascii"),
+        })
+
+    async def discover_crash(
+        self,
+        workspace_id: str,
+        *,
+        target: str,
+        seconds: int,
+        repo_subdir: str = "repo-vul",
+        minimize_seconds: int = 60,
+    ) -> dict[str, Any]:
+        return await self._post("/discover", {
+            "workspace_id": workspace_id,
+            "target": target,
+            "seconds": seconds,
+            "repo_subdir": repo_subdir,
+            "minimize_seconds": minimize_seconds,
         })
 
     async def close(self) -> None:

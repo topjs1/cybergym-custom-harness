@@ -99,6 +99,20 @@ async def triage(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
+async def discover(request: Request) -> JSONResponse:
+    if (guard := _guard(request)) is not None:
+        return guard
+    payload = await _json(request)
+    result = await _BACKEND.discover_crash(
+        str(payload.get("workspace_id", "")),
+        target=str(payload.get("target", "")),
+        seconds=int(payload.get("seconds") or _SETTINGS.fuzz_seconds),
+        repo_subdir=str(payload.get("repo_subdir", "repo-vul")),
+        minimize_seconds=int(payload.get("minimize_seconds") or 60),
+    )
+    return JSONResponse(result)
+
+
 app = Starlette(
     routes=[
         Route("/healthz", health, methods=["GET"]),
@@ -106,6 +120,7 @@ app = Starlette(
         Route("/run", run, methods=["POST"]),
         Route("/fuzz", fuzz, methods=["POST"]),
         Route("/triage", triage, methods=["POST"]),
+        Route("/discover", discover, methods=["POST"]),
     ]
 )
 

@@ -166,6 +166,69 @@ def test_make_dynamic_backend_respects_mode(settings, tmp_path):
     assert isinstance(inline, DockerDynamicBackend)
 
 
+@pytest.mark.asyncio
+async def test_discover_crash_pipeline_collects_fuzzes_minimizes(settings):
+    configured = _inline(settings)
+    ws = configured.work_root / "wsd"
+    (ws / "repo-vul" / "testdata").mkdir(parents=True)
+    (ws / "repo-vul" / "testdata" / "seed1").write_bytes(b"seedbytes")
+    out = ws / "build" / "out"
+    out.mkdir(parents=True)
+    target = out / "fuzzer"
+    target.write_bytes(b"x")
+    target.chmod(0o755)
+
+    def handler(argv, timeout):
+        crashes = ws / "build" / "crashes"
+        crashes.mkdir(parents=True, exist_ok=True)
+        if "-minimize_crash=1" in argv:
+            (crashes / "minimized").write_bytes(b"BOOM")
+        else:
+            (crashes / "crash-abc").write_bytes(b"BOOMLONGER")
+        return ProcResult(0, "", "")
+
+    runner = FakeRunner(handler)
+    backend = DockerDynamicBackend(configured, configured.work_root, runner)
+    result = await backend.discover_crash("wsd", target="fuzzer", seconds=5)
+    assert result["ok"] is True
+    assert result["seeds"] >= 1
+    assert len(result["crashes"]) == 1
+    assert result["minimized"]["name"] == "minimized"
+    calls = [" ".join(call) for call in runner.calls]
+    assert any("-minimize_crash=1" in call for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_discover_crash_tool_persists_minimized(settings):
+    configured = _inline(settings)
+    ws = configured.work_root / "wsdt"
+    (ws / "repo-vul" / "seeds").mkdir(parents=True)
+    (ws / "repo-vul" / "seeds" / "a").write_bytes(b"seed")
+    out = ws / "build" / "out"
+    out.mkdir(parents=True)
+    target = out / "fuzzer"
+    target.write_bytes(b"x")
+    target.chmod(0o755)
+    (ws / "generated").mkdir(parents=True)
+
+    def handler(argv, timeout):
+        crashes = ws / "build" / "crashes"
+        crashes.mkdir(parents=True, exist_ok=True)
+        if "-minimize_crash=1" in argv:
+            (crashes / "minimized").write_bytes(b"BOOM")
+        else:
+            (crashes / "crash-abc").write_bytes(b"BOOMLONGER")
+        return ProcResult(0, "", "")
+
+    backend = DockerDynamicBackend(configured, configured.work_root, FakeRunner(handler))
+    tools = DynamicTools(backend, configured, ws, "wsdt")
+    text = await tools.discover_crash(target="fuzzer", seconds=5)
+    assert "minimized-" in text
+    names = sorted(p.name for p in (ws / "generated").iterdir())
+    assert any(name.startswith("minimized-") for name in names)
+    assert any(name.startswith("crash-") for name in names)
+
+
 def test_parse_asan_extracts_function():
     text = (
         "ERROR: AddressSanitizer: heap-buffer-overflow on address 0x0\n"

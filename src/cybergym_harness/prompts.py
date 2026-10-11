@@ -109,6 +109,25 @@ DYNAMIC_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_crash",
+            "description": (
+                "One shot: collect the project's seed corpus (corpus/seeds/testdata dirs and *_seed_corpus.zip), "
+                "fuzz the built target coverage-guided, and minimize the first crash. Saved under generated/."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string"},
+                    "seconds": {"type": "integer", "minimum": 1},
+                    "repo_subdir": {"type": "string", "default": "repo-vul"},
+                },
+                "required": ["target"],
+            },
+        },
+    },
 ]
 
 

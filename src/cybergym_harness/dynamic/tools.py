@@ -82,6 +82,41 @@ class DynamicTools:
             f"crashes={saved}\n{result.get('output', '')}"
         )
 
+    async def discover_crash(
+        self, target: str = "", seconds: int | None = None, repo_subdir: str = "repo-vul"
+    ) -> str:
+        if not target:
+            return "find_crash requires a target name (see build_target output)"
+        duration = min(int(seconds or self.settings.fuzz_seconds), self.settings.fuzz_seconds)
+        result = await self.backend.discover_crash(
+            self.workspace_id, target=target, seconds=duration, repo_subdir=repo_subdir
+        )
+        if not result.get("ok"):
+            return f"find_crash FAILED: {result.get('error')}"
+        seeds = result.get("seeds", 0)
+        crashes = result.get("crashes", [])
+        minimized = result.get("minimized")
+        if not crashes:
+            return (
+                f"find_crash: collected {seeds} seed file(s); no crash in {duration}s\n"
+                f"{result.get('output', '')}"
+            )
+        saved = self._persist_crashes(crashes)
+        minimized_name = ""
+        if minimized:
+            crashes_dir = self.workspace / "build" / "crashes"
+            source = ensure_within(crashes_dir, crashes_dir / str(minimized.get("name", "")))
+            if source.is_file():
+                blob = source.read_bytes()
+                digest = hashlib.sha256(blob).hexdigest()[:16]
+                destination = self.generated / f"minimized-{digest}"
+                destination.write_bytes(blob)
+                minimized_name = f"{destination.name} ({len(blob)} bytes)"
+        summary = f"find_crash: seeds={seeds}, crashes={len(crashes)}"
+        if minimized_name:
+            summary += f", minimized={minimized_name}"
+        return f"{summary}. Submit with submit_poc path=<name>.\ncrashes={saved}\n{result.get('output', '')}"
+
     async def triage(self, input_path: str = "", input_base64: str = "", target: str = "") -> str:
         if not target:
             return "triage_crash requires a target name (see build_target output)"
