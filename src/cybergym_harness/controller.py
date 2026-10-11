@@ -34,6 +34,12 @@ FORMAT_TRACK_VARIANT = (
     "checksums). Explore structures beyond plain text."
 )
 
+FORCE_SUBMIT_NUDGE = (
+    "You have not submitted any candidate yet and the budget is limited. Stop further exploration: "
+    "create a best-effort PoC with build_poc (or reuse an existing generated/ or fuzz artifact) and "
+    "call submit_poc immediately. A final submission is required to be scored."
+)
+
 
 def _json_text(value: Any, limit: int) -> str:
     rendered = json.dumps(value, ensure_ascii=False, default=str)
@@ -216,11 +222,36 @@ class HarnessSession:
                     self.metrics.event("track_error", error=f"{type(result).__name__}: {result}")
         self.metrics.phase_end("solve")
 
+        # Guarantee a final artifact: if the model never submitted, fall back to any
+        # generated or fuzz-crash candidate so the task is still scored.
+        if self.last_poc is None:
+            fallback = self._fallback_candidate()
+            if fallback is not None:
+                self.last_poc = fallback
+                self.metrics.event("fallback_artifact", size=len(fallback))
         if self.last_poc is not None:
             await self._add_final_artifact(updater, self.last_poc)
         self.metrics.status = "PASS" if self.success else "FAIL"
         if not self.last_poc and not self.metrics.error:
             self.metrics.error = "agent produced no PoC"
+
+    def _fallback_candidate(self) -> bytes | None:
+        assert self.challenge is not None
+        roots = [
+            self.challenge.workspace / "generated",
+            self.challenge.workspace / "build" / "crashes",
+        ]
+        candidates: list[Path] = []
+        for root in roots:
+            if root.is_dir():
+                candidates.extend(path for path in root.rglob("*") if path.is_file())
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda path: (path.stat().st_size, path.stat().st_mtime))
+        try:
+            return best.read_bytes()
+        except OSError:
+            return None
 
     def _make_tracks(self, system_prompt: str, initial: str, dynamic_enabled: bool) -> list[_Track]:
         assert self.challenge is not None
@@ -261,6 +292,13 @@ class HarnessSession:
             if rough_input >= remaining:
                 self.metrics.error = "estimated next prompt would exceed token budget"
                 return
+            if (
+                self.metrics.attempts == 0
+                and llm_index >= self.settings.force_submit_after
+                and (llm_index - self.settings.force_submit_after) % 5 == 0
+            ):
+                track.messages.append({"role": "user", "content": FORCE_SUBMIT_NUDGE})
+                self.metrics.event("force_submit", role=track.role, step=llm_index)
             max_output = min(self.settings.max_output_tokens, max(1, remaining - rough_input))
             await updater.update_status(
                 TaskState.working,

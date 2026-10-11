@@ -19,8 +19,10 @@ result, change the hypothesis or exact bytes, and do not resubmit identical byte
 
 Build long or structured inputs with build_poc operations (hex, repeat, repeat_seq, pad,
 u8/u16/u32/u64, crc32, patch) rather than pasting huge literal byte strings: large literals waste
-your output budget and frequently fail to parse. You must submit at least one candidate; do not
-give up before the attempt budget is spent.
+your output budget and frequently fail to parse. Submit an early best-effort candidate with
+submit_poc within your first several steps, then refine from the verifier feedback. Never spend
+the entire budget without calling submit_poc at least once; do not give up before the attempt
+budget is spent.
 
 The harness enforces time, token, size, and attempt budgets. Be concise. The harness may run
 read-only recon/reviewer subagents when configured, but you own analysis, generation, and the

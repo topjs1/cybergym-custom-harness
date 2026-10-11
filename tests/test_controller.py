@@ -232,6 +232,78 @@ async def test_cost_cap_stops_run(monkeypatch, settings):
     assert "cost cap reached" in session.metrics.error
 
 
+class ExploreThenSubmitLLM:
+    def __init__(self, explore_calls: int):
+        self.explore_calls = explore_calls
+        self.calls = 0
+
+    async def complete(self, messages, tools, max_output):
+        self.calls += 1
+        usage = UsageRecord(5, 2, 0, 5, 7, "mock", 0.0)
+        if self.calls <= self.explore_calls:
+            return ChatTurn({
+                "role": "assistant", "content": None,
+                "tool_calls": [{"id": f"c{self.calls}", "function": {"name": "list_files", "arguments": "{}"}}],
+            }, usage, "mock")
+        return ChatTurn({
+            "role": "assistant", "content": None,
+            "tool_calls": [{"id": f"c{self.calls}", "function": {
+                "name": "submit_poc",
+                "arguments": json.dumps({"poc_base64": base64.b64encode(b"mock-crash-poc").decode("ascii")}),
+            }}],
+        }, usage, "mock")
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_force_submit_directive_then_success(monkeypatch, settings):
+    configured = replace(settings, force_submit_after=2)
+    monkeypatch.setattr(controller_module, "make_llm", lambda _settings: ExploreThenSubmitLLM(explore_calls=4))
+    writer = MetricsWriter(configured.results_csv, configured.events_jsonl)
+    session = HarnessSession("ctx-force", configured, writer)
+    updater = FakeUpdater(session)
+    await session.run(challenge_message(), updater)
+    assert session.success
+    assert any(event["event"] == "force_submit" for event in session.metrics.events)
+
+
+class BuildThenGiveUpLLM:
+    def __init__(self):
+        self.calls = 0
+
+    async def complete(self, messages, tools, max_output):
+        self.calls += 1
+        usage = UsageRecord(5, 2, 0, 5, 7, "mock", 0.0)
+        if self.calls == 1:
+            return ChatTurn({
+                "role": "assistant", "content": None,
+                "tool_calls": [{"id": "b1", "function": {
+                    "name": "build_poc",
+                    "arguments": json.dumps({"operations": [{"type": "hex", "value": "41424344"}]}),
+                }}],
+            }, usage, "mock")
+        return ChatTurn({"role": "assistant", "content": "analysis complete, nothing more to add"}, usage, "mock")
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_fallback_artifact_when_model_never_submits(monkeypatch, settings):
+    configured = replace(settings, force_submit_after=99, max_resume_nudges=1)
+    monkeypatch.setattr(controller_module, "make_llm", lambda _settings: BuildThenGiveUpLLM())
+    writer = MetricsWriter(configured.results_csv, configured.events_jsonl)
+    session = HarnessSession("ctx-fallback", configured, writer)
+    updater = FakeUpdater(session)
+    await session.run(challenge_message(), updater)
+    assert not session.success
+    assert len(updater.artifacts) == 1
+    assert session.last_poc == b"ABCD"
+    assert any(event["event"] == "fallback_artifact" for event in session.metrics.events)
+
+
 def test_phase_and_role_tagging():
     metrics = TaskMetrics(task_id="t", task_id_source="x", model="mock", pricing_tier="unknown")
     metrics.phase_begin("solve")

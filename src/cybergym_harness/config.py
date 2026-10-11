@@ -82,6 +82,7 @@ class Settings:
     stall_threshold: int = 3
     mutation_attempts: int = 0
     max_resume_nudges: int = 4
+    force_submit_after: int = 6
     tracks: int = 1
     max_cost_usd: float = 0.0
 
@@ -152,6 +153,7 @@ class Settings:
             stall_threshold=_env_int("HARNESS_STALL_THRESHOLD", 3, 1),
             mutation_attempts=_env_int("HARNESS_MUTATION_ATTEMPTS", 0, 0),
             max_resume_nudges=_env_int("HARNESS_RESUME_NUDGES", 4, 0),
+            force_submit_after=_env_int("HARNESS_FORCE_SUBMIT_AFTER", 6, 1),
             tracks=_env_int("HARNESS_TRACKS", 1, 1),
             max_cost_usd=_env_float("HARNESS_MAX_COST_USD", 0.0, 0.0),
         )
