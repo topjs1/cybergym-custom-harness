@@ -107,6 +107,7 @@ class HarnessSession:
             pricing_tier="unknown" if settings.llm_mode == "mock" else settings.pricing_tier,
         )
         self.last_poc: bytes | None = None
+        self.winning_poc: bytes | None = None
         self.success = False
         self.active = True
         self.waiting_for_feedback = False
@@ -258,8 +259,14 @@ class HarnessSession:
     async def _ensure_final_artifact(self, updater: TaskUpdater) -> None:
         if self._artifact_added:
             return
-        candidate = self.last_poc
-        source = "last_poc"
+        # Prefer the PoC whose verifier test actually crashed; never let a later
+        # non-crashing candidate from another parallel track overwrite it.
+        if self.winning_poc is not None:
+            candidate = self.winning_poc
+            source = "winning_poc"
+        else:
+            candidate = self.last_poc
+            source = "last_poc"
         if candidate is None:
             source = "generated"
             try:
@@ -584,6 +591,7 @@ class HarnessSession:
             self._record_verdict(track, verdict)
             if verdict.crashed:
                 self.success = True
+                self.winning_poc = poc
                 self._stop_event.set()
                 return f"SUCCESS: vulnerable target exit_code={verdict.exit_code}; finalizing this exact PoC"
             if self.settings.mutation_attempts > 0 and self.metrics.attempts < self.settings.max_attempts:
@@ -608,6 +616,7 @@ class HarnessSession:
                     self._record_verdict(track, mutation_verdict)
                     if mutation_verdict.crashed:
                         self.success = True
+                        self.winning_poc = blob
                         self._stop_event.set()
                         return f"SUCCESS: mutated candidate exit_code={mutation_verdict.exit_code}; finalizing"
         return f"FAILED ({verdict.category}): {verdict.hint}"

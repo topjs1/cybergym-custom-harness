@@ -53,6 +53,7 @@ async def test_mock_llm_feedback_loop_and_metrics(settings):
     # one placeholder artifact at start + one final artifact
     assert len(updater.artifacts) == 2
     assert base64.b64decode(updater.artifacts[-1][0][0].root.file.bytes) == b"mock-crash-poc"
+    assert session.winning_poc == b"mock-crash-poc"
     assert session.metrics.attempts == 2
     assert session.metrics.input_tokens == 180
     assert session.metrics.output_tokens == 35

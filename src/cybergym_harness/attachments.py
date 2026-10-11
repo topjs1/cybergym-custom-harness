@@ -34,6 +34,7 @@ def _safe_filename(name: str | None) -> str:
 
 def _safe_extract_tar(data: bytes, destination: Path, max_extracted_bytes: int) -> None:
     destination.mkdir(parents=True, exist_ok=True)
+    base = destination.resolve()
     total = 0
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
         members = archive.getmembers()
@@ -41,15 +42,10 @@ def _safe_extract_tar(data: bytes, destination: Path, max_extracted_bytes: int) 
             path = PurePosixPath(member.name)
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError(f"unsafe archive path: {member.name!r}")
-            if member.issym() or member.islnk() or member.isdev():
-                raise ValueError(f"archive links/devices are not accepted: {member.name!r}")
-            if not (member.isdir() or member.isfile()):
-                raise ValueError(f"unsupported archive entry: {member.name!r}")
             total += max(member.size, 0)
             if total > max_extracted_bytes:
                 raise ValueError("archive exceeds HARNESS_MAX_EXTRACTED_BYTES")
 
-        base = destination.resolve()
         for member in members:
             target = (destination / member.name).resolve()
             if target != base and base not in target.parents:
@@ -57,10 +53,31 @@ def _safe_extract_tar(data: bytes, destination: Path, max_extracted_bytes: int) 
             if member.isdir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue
+            # Links: allow contained symlinks/hardlinks; skip anything unsafe (absolute or
+            # escaping) and all devices/FIFOs instead of failing the whole task.
+            if member.issym() or member.islnk():
+                link = PurePosixPath(member.linkname)
+                if link.is_absolute():
+                    continue
+                link_target = (target.parent / member.linkname).resolve()
+                if link_target != base and base not in link_target.parents:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if member.islnk() and (destination / member.linkname).is_file():
+                    shutil.copyfile(destination / member.linkname, target)
+                    continue
+                try:
+                    target.unlink(missing_ok=True)
+                    target.symlink_to(member.linkname)
+                except OSError:
+                    continue
+                continue
+            if member.isdev() or member.isfifo() or not member.isfile():
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             source = archive.extractfile(member)
             if source is None:
-                raise ValueError(f"cannot read archive entry: {member.name!r}")
+                continue
             with source, target.open("wb") as output:
                 shutil.copyfileobj(source, output, length=1024 * 1024)
 

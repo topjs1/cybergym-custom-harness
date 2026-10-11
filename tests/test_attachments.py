@@ -22,6 +22,38 @@ def test_prepare_challenge_extracts_and_identifies_level(tmp_path):
     assert (challenge.input_root / "description.txt").read_text().startswith("Mock")
 
 
+def _tar_with_links() -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        data = b"hello"
+        info = tarfile.TarInfo("dir/a.txt")
+        info.size = len(data)
+        archive.addfile(info, io.BytesIO(data))
+        safe = tarfile.TarInfo("dir/link")
+        safe.type = tarfile.SYMTYPE
+        safe.linkname = "a.txt"
+        archive.addfile(safe)
+        evil = tarfile.TarInfo("dir/evil")
+        evil.type = tarfile.SYMTYPE
+        evil.linkname = "../../../../etc/passwd"
+        archive.addfile(evil)
+    return buffer.getvalue()
+
+
+def test_safe_symlinks_extract_and_unsafe_are_skipped(tmp_path):
+    part = Part(root=FilePart(file=FileWithBytes(
+        bytes=base64.b64encode(_tar_with_links()).decode("ascii"),
+        name="repo-vul.tar.gz",
+        mime_type="application/gzip",
+    )))
+    message = Message(kind="message", role=Role.user, parts=[part], message_id="links")
+    challenge = prepare_challenge(message, "context-links", tmp_path, 4_000_000, 16_000_000)
+    link = challenge.input_root / "repo-vul/dir/link"
+    assert link.is_symlink()
+    assert (challenge.input_root / "repo-vul/dir/a.txt").is_file()
+    assert not (challenge.input_root / "repo-vul/dir/evil").exists()
+
+
 def test_archive_path_traversal_is_rejected(tmp_path):
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
