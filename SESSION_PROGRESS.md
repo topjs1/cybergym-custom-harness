@@ -120,6 +120,23 @@ unset DEEPSEEK_API_KEY
 
 완료: P6 SUBMISSION 스키마 요약(`tools/summarize_results.py --submission`).
 
+## Phase 0 배포 완료 (2026-10-12)
+
+- 32개 변경분 커밋 `6d76413` → `origin/main` push.
+- CI(`Test and Publish Agent`) 전 단계 성공: 테스트 → amber check → linux/amd64 빌드 →
+  스모크 → **GHCR 재푸시**.
+- GHCR `ghcr.io/topjs1/cybergym-custom-harness:latest` **public** 확인(anonymous pull 200).
+- `amber-manifest.json5`에 조정 노브 추가: `max_cost_usd=0.5`, `tracks=1`,
+  `recon_subagent=true`, `reviewer_subagent=false`, `mutation_attempts=0`, `resume_nudges=4`,
+  `HARNESS_DYNAMIC_ANALYSIS=off`(AgentBeats는 Purple에 docker 없음).
+- 실행 가이드 `AGENTBEATS_RUN.md` 추가(등록 절차 + 리더보드 scenario.toml + Quick Submit).
+
+### 다음: AgentBeats 등록·실행 (사용자 브라우저 작업)
+1. agentbeats.dev에 Purple 등록 → `agentbeats_id` 확보.
+2. `RDI-Foundation/cybergym-leaderboard` fork → `scenario.toml`에 green id + 우리 id +
+   `tasks`(subset 10) + `level1`+`num_workers=2`+`cleanup_images=true`.
+3. Quick Submit(`num_shards` 예: 5) → Actions → 결과 집계.
+
 ## 백업/복원
 
 - 코드 백업: 상위 디렉터리의 `cybergym-custom-harness-backup-<ts>.tar.gz`
