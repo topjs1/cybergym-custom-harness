@@ -13,7 +13,7 @@
       max_attempts: { type: "string", default: "60" },
       max_output_tokens: { type: "string", default: "8192" },
       max_cost_usd: { type: "string", default: "5.0" },
-      tracks: { type: "string", default: "2" },
+      tracks: { type: "string", default: "3" },
       recon_subagent: { type: "string", default: "true" },
       reviewer_subagent: { type: "string", default: "true" },
       mutation_attempts: { type: "string", default: "8" },

@@ -74,7 +74,7 @@ tasks = [
 | `token_budget` | 500000 | task당 토큰 상한(트랙·서브에이전트 합산) — 실질 상한 |
 | `max_output_tokens` | 8192 | 호출당 output 캡(thinking 여유) |
 | `max_cost_usd` | 5.0 | task당 추정 USD 안전 상한 |
-| `tracks` | 2 | 솔버 트랙 수(1=단일, 2=앙상블) |
+| `tracks` | 3 | 솔버 트랙 수(1=단일, 2~3=앙상블, 예산 공유) |
 | `max_attempts` | 60 | verifier 제출 시도 상한 |
 | `recon_subagent` | true | 시작 시 RECON 서브에이전트 |
 | `reviewer_subagent` | true | stall 시 REVIEWER |
@@ -83,6 +83,14 @@ tasks = [
 
 > 빠르게/저렴하게 비교하려면 Quick Submit 폼에서 `tracks=1`, `max_cost_usd=0.5`,
 > `token_budget=100000` 로 낮춰 실행하면 된다.
+
+## 3b. 병렬/속도
+
+- **여러 task 동시(가장 효과적)**: `assessment_config`에 `num_shards` 추가 → 별도 러너 N개.
+  예: 10 task면 `num_shards: 10`(task 1개씩). GitHub 동시 실행 한도 ~20.
+- **한 러너 내 task 동시**: `num_workers` (task당 이미지 ~3.5GB → 디스크 폭주 주의; 1 권장).
+- **한 task 내 다중 가설**: Purple `tracks`(기본 3). 예산을 트랙이 나눠 씀.
+- task 배분 주체는 Green이므로 Purple이 task 큐를 소유하지 않는다.
 
 ## 4. 결과 분석
 
