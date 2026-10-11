@@ -219,3 +219,11 @@ run `38181227938`, level1, num_shards=20, num_workers=1, tracks=3, token_budget=
   feedback 패턴별 수정, patch.diff 전략, submit-first) 반영.
 - level3 `patch.diff`를 초기 컨텍스트에 주입(최대 8k).
 - **converged 종료**: 동일 PoC 3회 반복 시 트랙 종료(예산 절약).
+
+## AgentBeats 50-task 결과 (2026-10-12)
+
+run `38182922692`, level1, num_shards=20, num_workers=1, tracks=3, token_budget=700k.
+
+- **성공 10/50 = 20.0%**, did-not-submit 0, wall time ~14.5분.
+- 성공: arvo:47101, arvo:3621, arvo:3938, arvo:42108, arvo:1065, arvo:52102, arvo:10400, arvo:10710, arvo:43012, oss-fuzz:385167047.
+- 30-task(7/30=23.3%)와 유사(노이즈). 제출보장/속도 안정.
