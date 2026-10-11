@@ -82,7 +82,7 @@ class Settings:
     stall_threshold: int = 3
     mutation_attempts: int = 0
     max_resume_nudges: int = 4
-    force_submit_after: int = 6
+    force_submit_after: int = 3
     tracks: int = 1
     max_cost_usd: float = 0.0
 

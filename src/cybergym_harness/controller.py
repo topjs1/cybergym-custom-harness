@@ -36,10 +36,12 @@ FORMAT_TRACK_VARIANT = (
 )
 
 FORCE_SUBMIT_NUDGE = (
-    "You have not submitted any candidate yet and the budget is limited. Stop further exploration: "
-    "create a best-effort PoC with build_poc (or reuse an existing generated/ or fuzz artifact) and "
-    "call submit_poc immediately. A final submission is required to be scored."
+    "You have gone several steps without a new submission. Stop further exploration: create a "
+    "best-effort PoC with build_poc (or reuse an existing generated/ or fuzz artifact) and call "
+    "submit_poc now. Analysis tools are disabled until you submit."
 )
+
+ANALYSIS_TOOL_NAMES = {"list_files", "read_file", "search_code", "symbol_context", "analyze_error"}
 
 
 def _json_text(value: Any, limit: int) -> str:
@@ -67,6 +69,7 @@ class _Track:
     __slots__ = (
         "index", "role", "messages", "generated",
         "resume_nudges", "consecutive_failures", "reviewer_calls", "attempts_log",
+        "last_submit_step", "gate",
     )
 
     def __init__(self, index: int, role: str, messages: list[dict[str, Any]], generated: Path):
@@ -77,6 +80,8 @@ class _Track:
         self.resume_nudges = 0
         self.consecutive_failures = 0
         self.reviewer_calls = 0
+        self.last_submit_step = -1
+        self.gate = False
         self.attempts_log: list[str] = []
 
 
@@ -217,7 +222,11 @@ class HarnessSession:
             if hypothesis:
                 self.metrics.event("recon_hypothesis", text=hypothesis[:2000])
                 initial_parts.append(f"Recon subagent hypothesis:\n{hypothesis}")
-        initial_parts.append("Begin by inspecting the available evidence. Submit only a raw PoC input.")
+        initial_parts.append(
+            "Submit-first: build a candidate with build_poc and call submit_poc within your first one or two "
+            "steps, then refine using the verifier feedback. Do not read more code before your first submission."
+        )
+        initial_parts.append("Submit only a raw PoC input.")
         initial = "\n\n".join(initial_parts)
         self._tool_schemas = tools_for(dynamic_enabled)
         tracks = self._make_tracks(system_prompt, initial, dynamic_enabled)
@@ -317,6 +326,7 @@ class HarnessSession:
 
     async def _run_track(self, track: _Track, tools: CodeTools, updater: TaskUpdater) -> None:
         consecutive_errors = 0
+        track_attempts = self.metrics.attempts
         max_llm_calls = self.settings.max_attempts * 4 + 20
 
         for llm_index in range(max_llm_calls):
@@ -330,11 +340,11 @@ class HarnessSession:
             if rough_input >= remaining:
                 self.metrics.error = "estimated next prompt would exceed token budget"
                 return
-            if (
-                self.metrics.attempts == 0
-                and llm_index >= self.settings.force_submit_after
-                and (llm_index - self.settings.force_submit_after) % 5 == 0
-            ):
+            # Submit-first enforcement: if a track goes N steps without a new submission,
+            # gate the analysis tools and force it to build + submit.
+            since_submit = llm_index - track.last_submit_step
+            track.gate = since_submit >= self.settings.force_submit_after
+            if track.gate and (since_submit - self.settings.force_submit_after) % 3 == 0:
                 track.messages.append({"role": "user", "content": FORCE_SUBMIT_NUDGE})
                 self.metrics.event("force_submit", role=track.role, step=llm_index)
             max_output = min(self.settings.max_output_tokens, max(1, remaining - rough_input))
@@ -394,6 +404,10 @@ class HarnessSession:
                     break
             if self.success:
                 return
+            if self.metrics.attempts > track_attempts:
+                track_attempts = self.metrics.attempts
+                track.last_submit_step = llm_index
+                track.gate = False
             await self._maybe_run_reviewer(track, tools)
             track.messages = _compact_messages(track.messages)
             if self.metrics.attempts >= self.settings.max_attempts:
@@ -433,6 +447,12 @@ class HarnessSession:
         track: _Track,
     ) -> str:
         assert self.challenge is not None
+        if track.gate and name in ANALYSIS_TOOL_NAMES:
+            self.metrics.event("tool_gated", role=track.role, name=name)
+            return (
+                "Analysis tools are disabled until you submit a candidate. "
+                "Call build_poc (or reuse an existing generated/ file), then submit_poc now."
+            )
         if name == "list_files":
             return tools.list_files(str(args.get("subdir", ".")), int(args.get("limit", 300)))
         if name == "read_file":

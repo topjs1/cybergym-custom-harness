@@ -178,3 +178,11 @@ run `38173631508`, level3, num_workers=1, token_budget=500k → **4/10 재현 �
 - 성공 4, 실패 6(오답 2, 미제출 4).
 - 다음 개선: 미제출 4건 → 모델이 build_poc조차 안 한 경우 하네스가 최소 후보를 만들어
   반드시 제출하도록 강제(현 fallback은 생성물이 있을 때만 동작).
+
+## 하네스 구조 개편: Submit-first (2026-10-11)
+
+- 프롬프트: "첫 1~2스텝 내 build_poc→submit_poc" 명시.
+- **분석 도구 게이팅**: 마지막 제출 후 `HARNESS_FORCE_SUBMIT_AFTER`(기본 3) 스텝이 지나면
+  list/read/search/symbol/analyze 도구를 차단하고 build_poc/submit_poc만 허용.
+- placeholder artifact + 종료 경로 무관 최종 제출 보장 유지.
+- 진단 로그 `[harness] done ...` 추가.

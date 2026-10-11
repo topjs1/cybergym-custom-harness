@@ -348,6 +348,44 @@ async def test_guaranteed_artifact_on_exception(monkeypatch, settings):
     assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
 
 
+class AnalysisThenSubmitLLM:
+    def __init__(self, submit_at: int):
+        self.submit_at = submit_at
+        self.calls = 0
+
+    async def complete(self, messages, tools, max_output):
+        self.calls += 1
+        usage = UsageRecord(3, 2, 0, 3, 5, "mock", 0.0)
+        if self.calls >= self.submit_at:
+            return ChatTurn({
+                "role": "assistant", "content": None,
+                "tool_calls": [{"id": f"c{self.calls}", "function": {
+                    "name": "submit_poc",
+                    "arguments": json.dumps({"poc_base64": base64.b64encode(b"mock-crash-poc").decode("ascii")}),
+                }}],
+            }, usage, "mock")
+        return ChatTurn({
+            "role": "assistant", "content": None,
+            "tool_calls": [{"id": f"c{self.calls}", "function": {"name": "list_files", "arguments": "{}"}}],
+        }, usage, "mock")
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_submit_first_gates_analysis_tools(monkeypatch, settings):
+    configured = replace(settings, force_submit_after=2)
+    monkeypatch.setattr(controller_module, "make_llm", lambda _settings: AnalysisThenSubmitLLM(submit_at=5))
+    writer = MetricsWriter(configured.results_csv, configured.events_jsonl)
+    session = HarnessSession("ctx-gate", configured, writer)
+    updater = FakeUpdater(session)
+    await session.run(challenge_message(), updater)
+    assert session.success
+    assert any(event["event"] == "tool_gated" for event in session.metrics.events)
+    assert any(event["event"] == "force_submit" for event in session.metrics.events)
+
+
 def test_phase_and_role_tagging():
     metrics = TaskMetrics(task_id="t", task_id_source="x", model="mock", pricing_tier="unknown")
     metrics.phase_begin("solve")
