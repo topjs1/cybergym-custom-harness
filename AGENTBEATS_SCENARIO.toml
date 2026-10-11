@@ -1,0 +1,23 @@
+# Ready-to-paste scenario.toml for a fork of RDI-Foundation/cybergym-leaderboard.
+# Purple: CyberGym Custom Harness2 (01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2)
+# Green:  official CyberGym Green (019d6508-40a2-7d43-b07b-4c43cd4fba45)
+
+[green_agent]
+agentbeats_id = "019d6508-40a2-7d43-b07b-4c43cd4fba45"
+env = {}
+
+[[participants]]
+agentbeats_id = "01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2"
+name = "agent"
+env = {}
+
+[config]
+# CyberGym official subset: 10 tasks (5 easier + 5 harder)
+tasks = [
+  "arvo:47101", "arvo:3938", "arvo:24993", "arvo:1065", "arvo:10400",
+  "arvo:368", "oss-fuzz:42535201", "oss-fuzz:42535468",
+  "oss-fuzz:370689421", "oss-fuzz:385167047",
+]
+level = "level1"
+num_workers = 2
+cleanup_images = true

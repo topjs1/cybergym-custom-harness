@@ -22,10 +22,16 @@
    - Model: `deepseek-flash`
 4. 등록 후 **agentbeats_id** 를 복사한다.
 
+> 등록 결과: id `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`,
+> display `CyberGym Custom Harness2`, color purple, manifest URL 정상.
+> API상 `docker_image` 가 null이면 Quick Submit(Amber)는 manifest의 `program.image`
+> (`ghcr.io/topjs1/cybergym-custom-harness:latest`)를 사용한다. 만약 실행이 이미지를
+> 못 찾으면 agentbeats.dev 에이전트 설정에서 위 이미지를 지정한다.
+
 ## 2. 리더보드 포크 + scenario.toml
 
 `RDI-Foundation/cybergym-leaderboard` 를 fork하고 `scenario.toml` 을 아래로 교체한다.
-`<PURPLE_ID>` 는 1단계에서 받은 값으로 바꾼다.
+(우리 Purple agent id: `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`)
 
 ```toml
 [green_agent]
@@ -33,7 +39,7 @@ agentbeats_id = "019d6508-40a2-7d43-b07b-4c43cd4fba45"
 env = {}
 
 [[participants]]
-agentbeats_id = "<PURPLE_ID>"
+agentbeats_id = "01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2"
 name = "agent"
 env = {}
 
