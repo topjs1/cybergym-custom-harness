@@ -105,6 +105,8 @@ class HarnessSession:
         self.waiting_for_feedback = False
         self._submitted_hashes: set[str] = set()
         self._finalized = False
+        self._artifact_added = False
+        self._triage = None
         self.dynamic_backend = None
         self.dynamic_tools: DynamicTools | None = None
         self._code_tools: CodeTools | None = None
@@ -132,14 +134,18 @@ class HarnessSession:
                     TaskState.working,
                     new_agent_text_message(self.metrics.error),
                 )
-                if self.last_poc is not None:
-                    await self._add_final_artifact(updater, self.last_poc)
             except Exception as exc:
                 self.metrics.status = "ERROR"
                 self.metrics.error = f"{type(exc).__name__}: {exc}"
                 raise
             finally:
                 self.active = False
+                # Hard guarantee: never leave the task without a final PoC artifact,
+                # regardless of how the run ended (normal, timeout, or exception).
+                try:
+                    await self._ensure_final_artifact(updater)
+                except Exception:  # noqa: BLE001 - the guarantee must not mask the real error
+                    self.metrics.event("guaranteed_artifact_failed")
                 if self.llm is not None:
                     await self.llm.close()
                 await self.finalize()
@@ -181,6 +187,7 @@ class HarnessSession:
             description_text,
             error_text,
         )
+        self._triage = triage
         self._triage_summary = triage.render()
         self.metrics.event("static_triage", summary=self._triage_summary)
         system_prompt = SYSTEM_PROMPT + (DYNAMIC_PROMPT_ADDENDUM if dynamic_enabled else "")
@@ -221,19 +228,42 @@ class HarnessSession:
                 if isinstance(result, Exception):
                     self.metrics.event("track_error", error=f"{type(result).__name__}: {result}")
         self.metrics.phase_end("solve")
-
-        # Guarantee a final artifact: if the model never submitted, fall back to any
-        # generated or fuzz-crash candidate so the task is still scored.
-        if self.last_poc is None:
-            fallback = self._fallback_candidate()
-            if fallback is not None:
-                self.last_poc = fallback
-                self.metrics.event("fallback_artifact", size=len(fallback))
-        if self.last_poc is not None:
-            await self._add_final_artifact(updater, self.last_poc)
+        await self._ensure_final_artifact(updater)
         self.metrics.status = "PASS" if self.success else "FAIL"
-        if not self.last_poc and not self.metrics.error:
+        if self.last_poc is None and not self.metrics.error:
             self.metrics.error = "agent produced no PoC"
+
+    async def _ensure_final_artifact(self, updater: TaskUpdater) -> None:
+        if self._artifact_added:
+            return
+        candidate = self.last_poc
+        source = "last_poc"
+        if candidate is None:
+            candidate = self._fallback_candidate()
+            source = "generated"
+        if candidate is None:
+            candidate = self._minimal_candidate()
+            source = "synthetic"
+        if candidate is None:
+            return
+        self.last_poc = candidate
+        self.metrics.event("guaranteed_artifact", source=source, size=len(candidate))
+        await self._add_final_artifact(updater, candidate)
+
+    def _minimal_candidate(self) -> bytes | None:
+        triage = self._triage
+        out = bytearray()
+        for token in list(getattr(triage, "magic", []) or [])[:8]:
+            token = str(token).strip().lower()
+            if token.startswith("0x"):
+                try:
+                    out.append(int(token, 16) & 0xFF)
+                except ValueError:
+                    continue
+        if out:
+            out.extend(b"A" * 64)
+            return bytes(out)
+        return b"A"
 
     def _fallback_candidate(self) -> bytes | None:
         assert self.challenge is not None
@@ -628,6 +658,7 @@ class HarnessSession:
             )))],
             name="poc",
         )
+        self._artifact_added = True
 
     async def finalize(self) -> None:
         if self._finalized:

@@ -18,8 +18,9 @@ tasks = [
   "arvo:368", "oss-fuzz:42535201", "oss-fuzz:42535468",
   "oss-fuzz:370689421", "oss-fuzz:385167047",
 ]
+# level1 = the cybergym.io leaderboard setting. (level3 adds repo-fix/patch/error.)
 level = "level1"
-num_workers = 2
+num_workers = 1
 # Do NOT set cleanup_images=true: the AgentBeats Docker gateway blocks image
 # DELETE, so Green's cleanup raises 403 and masks every task result.
 cleanup_images = false

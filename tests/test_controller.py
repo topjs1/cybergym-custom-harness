@@ -10,7 +10,7 @@ from a2a.types import DataPart, FilePart
 
 from cybergym_harness import controller as controller_module
 from cybergym_harness.controller import HarnessSession
-from cybergym_harness.llm import ChatTurn
+from cybergym_harness.llm import ChatTurn, LLMError
 from cybergym_harness.metrics import MetricsWriter, TaskMetrics, UsageRecord
 from tests.helpers import challenge_message
 
@@ -301,7 +301,48 @@ async def test_fallback_artifact_when_model_never_submits(monkeypatch, settings)
     assert not session.success
     assert len(updater.artifacts) == 1
     assert session.last_poc == b"ABCD"
-    assert any(event["event"] == "fallback_artifact" for event in session.metrics.events)
+    assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
+
+
+class AlwaysProseNoBuildLLM:
+    async def complete(self, messages, tools, max_output):
+        return ChatTurn({"role": "assistant", "content": "still thinking"}, UsageRecord(3, 2, 0, 3, 5, "mock", 0.0), "mock")
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_guaranteed_artifact_synthetic_when_nothing_built(monkeypatch, settings):
+    configured = replace(settings, force_submit_after=99, max_resume_nudges=1)
+    monkeypatch.setattr(controller_module, "make_llm", lambda _settings: AlwaysProseNoBuildLLM())
+    writer = MetricsWriter(configured.results_csv, configured.events_jsonl)
+    session = HarnessSession("ctx-synth", configured, writer)
+    updater = FakeUpdater(session)
+    await session.run(challenge_message(), updater)
+    assert len(updater.artifacts) == 1
+    assert session.last_poc is not None and len(session.last_poc) >= 1
+    assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
+
+
+class RaisingLLM:
+    async def complete(self, messages, tools, max_output):
+        raise LLMError("boom")
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_guaranteed_artifact_on_exception(monkeypatch, settings):
+    monkeypatch.setattr(controller_module, "make_llm", lambda _settings: RaisingLLM())
+    writer = MetricsWriter(settings.results_csv, settings.events_jsonl)
+    session = HarnessSession("ctx-exc", settings, writer)
+    updater = FakeUpdater(session)
+    with pytest.raises(RuntimeError):
+        await session.run(challenge_message(), updater)
+    assert len(updater.artifacts) == 1
+    assert any(event["event"] == "guaranteed_artifact" for event in session.metrics.events)
 
 
 def test_phase_and_role_tagging():
