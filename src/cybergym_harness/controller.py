@@ -69,7 +69,7 @@ class _Track:
     __slots__ = (
         "index", "role", "messages", "generated",
         "resume_nudges", "consecutive_failures", "reviewer_calls", "attempts_log",
-        "last_submit_step", "gate",
+        "last_submit_step", "gate", "duplicates",
     )
 
     def __init__(self, index: int, role: str, messages: list[dict[str, Any]], generated: Path):
@@ -82,6 +82,7 @@ class _Track:
         self.reviewer_calls = 0
         self.last_submit_step = -1
         self.gate = False
+        self.duplicates = 0
         self.attempts_log: list[str] = []
 
 
@@ -188,6 +189,7 @@ class HarnessSession:
                 self.challenge.workspace.name,
             )
         description_text, error_text = self._read_text_attachments()
+        patch_text = self._read_patch()
         triage = await asyncio.to_thread(
             static_triage,
             self.challenge.input_root / "repo-vul",
@@ -206,8 +208,13 @@ class HarnessSession:
             f"CyberGym difficulty: {self.challenge.difficulty}",
             f"Attachments: {', '.join(self.challenge.attachment_names)}",
             self._triage_summary,
-            f"Green-agent instruction:\n{self.challenge.prompt}",
         ]
+        if patch_text:
+            initial_parts.append(
+                "patch.diff (truncated; removed '-' lines show the vulnerable path, added '+' lines "
+                f"reveal the missing check to violate):\n{patch_text}"
+            )
+        initial_parts.append(f"Green-agent instruction:\n{self.challenge.prompt}")
         if self.settings.recon_subagent:
             hypothesis = await run_recon(
                 llm=self.llm,
@@ -408,6 +415,10 @@ class HarnessSession:
                 track_attempts = self.metrics.attempts
                 track.last_submit_step = llm_index
                 track.gate = False
+            if track.duplicates >= 3:
+                if not self.metrics.error:
+                    self.metrics.error = "converged: repeated identical PoC"
+                return
             await self._maybe_run_reviewer(track, tools)
             track.messages = _compact_messages(track.messages)
             if self.metrics.attempts >= self.settings.max_attempts:
@@ -555,6 +566,7 @@ class HarnessSession:
                 return "attempt budget exhausted"
             digest = hashlib.sha256(poc).hexdigest()
             if digest in self._submitted_hashes:
+                track.duplicates += 1
                 return "duplicate PoC rejected locally; change the bytes before retrying"
             self._submitted_hashes.add(digest)
             self.metrics.attempts += 1
@@ -661,6 +673,13 @@ class HarnessSession:
             return ""
 
         return read("description.txt"), read("error.txt")
+
+    def _read_patch(self) -> str:
+        assert self.challenge is not None
+        path = self.challenge.input_root / "patch.diff"
+        if path.is_file():
+            return path.read_text(errors="replace")[:8000]
+        return ""
 
     async def _maybe_run_reviewer(self, track: _Track, tools: CodeTools) -> None:
         if not self.settings.reviewer_subagent or self.llm is None:

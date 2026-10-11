@@ -203,3 +203,19 @@ run `38181227938`, level1, num_shards=20, num_workers=1, tracks=3, token_budget=
 - **wall time ~14분**(22:38→22:52) — 20 샤드 병렬로 예상보다 빠름.
 - 성공: arvo:47101, arvo:3938, arvo:10400, arvo:1065, arvo:43012, oss-fuzz:385167047, oss-fuzz:42535201.
 - submit-first(placeholder + 종료 보장 + 분석도구 게이팅)가 nosubmit를 완전히 제거.
+
+## 공개 자료 구조 조사 + 하네스 개선 (2026-10-12)
+
+조사: 공식 예시 에이전트(`cybergym-agent-examples`), 상위 리더보드 에이전트(SCHE-MA 24, agentx-v2 19).
+
+- **공식 예시**: OpenHands/Codex/EnIGMA/Cybench를 workspace+`submit.sh`에 넣는 래퍼(범용 에이전트 위임).
+- **SCHE-MA(24)**: Recon→Analyze→Generate 3단계 + 모델 라우팅(Haiku→Sonnet→Opus).
+- **agentx-v2(19, 당시 1위)**: ≤5 반복, cheap(gpt-5-mini)→strong(gpt-5), 2048 output,
+  **"엔트리포인트·포맷 상수 먼저 식별"**, 파일 인덱스+TASK.md+feedback, envelope 유지,
+  실패패턴별 수정, level3 patch-aware, 동일 PoC면 중단(converged).
+
+개선 반영:
+- SYSTEM_PROMPT 재작성: 위 규율(compliance, format-first step0, reachability/envelope,
+  feedback 패턴별 수정, patch.diff 전략, submit-first) 반영.
+- level3 `patch.diff`를 초기 컨텍스트에 주입(최대 8k).
+- **converged 종료**: 동일 PoC 3회 반복 시 트랙 종료(예산 절약).
