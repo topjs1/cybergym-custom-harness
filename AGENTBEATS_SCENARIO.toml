@@ -20,4 +20,6 @@ tasks = [
 ]
 level = "level1"
 num_workers = 2
-cleanup_images = true
+# Do NOT set cleanup_images=true: the AgentBeats Docker gateway blocks image
+# DELETE, so Green's cleanup raises 403 and masks every task result.
+cleanup_images = false

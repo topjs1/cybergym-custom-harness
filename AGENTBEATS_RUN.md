@@ -49,6 +49,8 @@
    (id `01a12c79-9dc0-70f0-a5cb-fc1ed2ae56d2`).
 3. secret `DEEPSEEK_API_KEY` 입력(브라우저 암호화; OIDC→backend→KMS 복호화, 완료 후 삭제).
 4. assessment config(폼에서 편집 가능하면): `tasks`=아래 10개, `level`="level1", `num_workers`=2.
+   - **`cleanup_images`는 넣지 마라(또는 false)**. AgentBeats Docker gateway가 이미지 DELETE를
+     막아서 Green의 cleanup이 403을 내고 모든 task 결과를 에러로 덮는다. (실측 확인: 2026-10-11)
    - 폼이 task 목록 편집을 지원하지 않으면 기본값(1 task)으로 실행될 수 있다.
 5. 실행 완료 → 리더보드 반영 + `RDI-Foundation/cybergym-leaderboard`에 commit/PR.
 
@@ -85,5 +87,5 @@ tasks = [
   정적 triage · RECON/REVIEWER · 앙상블 · 변이는 정상 동작한다.
 - 비용: 실제 CyberGym task는 파일럿보다 훨씬 어려워 task당 비용이 커질 수 있다.
   `max_cost_usd` 로 task당 상한을 둔다(초과 시 하네스가 중단).
-- Green은 target image 2개(vul/fix)를 러너에서 pull한다(각 ~1.5–2GB). 대량 task는 샤딩과
-  `cleanup_images=true` 로 러너 디스크를 관리한다.
+- Green은 target image 2개(vul/fix)를 러너에서 pull한다(각 ~1.5–2GB). 대량 task는 샤딩으로
+  분산한다. `cleanup_images`는 **사용 금지**(gateway가 DELETE 차단 → 403).
